@@ -11,13 +11,14 @@ import {
   PROJECTILE_SIZE,
   TILE_SIZE,
 } from "./constants.js";
+import { createPlayer } from "./entities.js";
 import { isSolidTile } from "./levelgen.js";
 import {
   createInitialState,
   DEFAULT_PLAYER_ID,
   step,
 } from "./simulation.js";
-import type { GameState, InputState, InputsById } from "./types.js";
+import type { GameState, InputState, InputsById, PlayerState } from "./types.js";
 
 function input(partial: Partial<InputState> = {}): InputState {
   return { left: false, right: false, jump: false, fire: false, tick: 0, ...partial };
@@ -317,6 +318,67 @@ test("reachability: a scripted floor-walk with a pit jump completes the level to
     }
   }
   assert.ok(won, "a right-moving player jumping the pit should reach the exit and win");
+});
+
+test("determinism: two players firing on the same tick get id-stable projectiles regardless of players-map key order", () => {
+  // Two players firing on the SAME tick both mint player-owned projectile ids from the
+  // shared nextEntityId counter. If the per-player fire loop iterated the players map in
+  // unsorted key order, two peers whose maps were rebuilt in different key orders would
+  // assign proj ids to the opposite players' shots and diverge. Build the same match with
+  // the two players inserted in OPPOSITE key order, step both with both firing, and assert
+  // the resulting GameStates are deep-equal. Reverts to unsorted iteration fail this test.
+  const idA = "player:a";
+  const idB = "player:b";
+
+  function twoPlayerState(order: "ab" | "ba"): GameState {
+    const base = createInitialState(42);
+    const spawn = base.map.spawn;
+    // Place the two players apart so their shots never overlap/consume each other, and
+    // facing opposite directions so a swapped id would also swap velocity sign.
+    const pa = createPlayer(idA, spawn);
+    pa.onGround = true;
+    pa.facing = "right";
+    pa.pos = { x: 4 * TILE_SIZE, y: spawn.ty * TILE_SIZE };
+    const pb = createPlayer(idB, spawn);
+    pb.onGround = true;
+    pb.facing = "left";
+    pb.pos = { x: 10 * TILE_SIZE, y: spawn.ty * TILE_SIZE };
+
+    const players: Record<string, PlayerState> = {};
+    if (order === "ab") {
+      players[idA] = pa;
+      players[idB] = pb;
+    } else {
+      players[idB] = pb;
+      players[idA] = pa;
+    }
+    // Drop enemies so only the two player shots are in play this tick.
+    return { ...base, players, enemies: [] };
+  }
+
+  const inputs: InputsById = {
+    [idA]: input({ fire: true }),
+    [idB]: input({ fire: true }),
+  };
+
+  const sAb = step(twoPlayerState("ab"), inputs);
+  const sBa = step(twoPlayerState("ba"), inputs);
+
+  // Full-state deep equality: id minting, projectile ids, and nextEntityId must match
+  // regardless of players-map insertion order.
+  assert.deepEqual(sAb, sBa);
+
+  // Each player's own shot is stably attributable: player A (facing right) always owns
+  // the same projectile id moving right, player B (facing left) the one moving left.
+  const shotA = sAb.projectiles.find((pr) => pr.owner === idA)!;
+  const shotB = sAb.projectiles.find((pr) => pr.owner === idB)!;
+  assert.ok(shotA.vel.x > 0, "player A shot travels right");
+  assert.ok(shotB.vel.x < 0, "player B shot travels left");
+  // Sorted-id order means A ("player:a") mints before B ("player:b").
+  assert.ok(
+    shotA.id < shotB.id,
+    "the lower-id player mints its projectile first, deterministically",
+  );
 });
 
 test("frozen after resolution: stepping a decided match is idempotent in status", () => {

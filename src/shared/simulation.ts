@@ -151,8 +151,11 @@ export function step(state: GameState, inputsById: InputsById): GameState {
   const rng = createRng((next.seed ^ Math.imul(next.tick, 0x9e3779b1)) >>> 0);
 
   // 1) Players: input -> velocity -> gravity -> integrate with tile collision,
-  //    then resolve the fire control into a player-owned projectile.
-  for (const id of Object.keys(next.players)) {
+  //    then resolve the fire control into a player-owned projectile. Iterate player
+  //    ids in sorted order so projectile id minting (nextEntityId) is independent of
+  //    the players-map key order: two peers whose maps were rebuilt in different key
+  //    orders assign the same proj id to the same player's shot and stay in lockstep.
+  for (const id of Object.keys(next.players).sort()) {
     const player = next.players[id]!;
     if (!player.alive) continue;
     const input = inputsById[id] ?? NO_INPUT;

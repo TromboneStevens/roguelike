@@ -3,11 +3,11 @@
 //
 // Shape guarantees (not a full reachability proof, but solvable by construction):
 //   - a solid floor row along the bottom with one authored gap just before the exit,
-//   - a player spawn on the left on solid ground and a non-solid exit on the right,
-//     raised onto a pedestal so reaching it REQUIRES a jump (the floor walk no longer
-//     leads straight to the exit),
-//   - the pre-exit gap width and the pedestal rise both stay within the player's jump
-//     reach (maxJumpGapTiles / maxJumpTiles) so the level is always completable,
+//   - a player spawn on the left on solid ground and a non-solid exit on the right at
+//     floor level, fronted by a floor pit so reaching it REQUIRES a jump across the gap
+//     (the flat floor walk no longer leads straight to the exit),
+//   - the pre-exit floor pit width stays within the player's horizontal jump reach
+//     (maxJumpGapTiles) so the level is always completable,
 //   - a sequence of platforms whose vertical gaps stay within the player's jump height,
 //   - at least one enemy spawn point on solid ground with headroom (never embedded in
 //     a platform tile).
