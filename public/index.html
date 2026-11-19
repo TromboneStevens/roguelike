@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Co-op Bullet Hell Roguelike</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        background: #0b0d14;
+        color: #e6e8ef;
+        font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+      }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #stage {
+        position: relative;
+        width: 960px;
+        height: 540px;
+      }
+      #game {
+        display: block;
+        width: 960px;
+        height: 540px;
+        background: #11141f;
+        image-rendering: pixelated;
+        border: 1px solid #262b3d;
+      }
+      /* HUD overlays the canvas; the client draws into it. */
+      #hud {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        padding: 8px 12px;
+        font-size: 13px;
+        line-height: 1.4;
+        text-shadow: 0 1px 2px #000;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <canvas id="game" width="960" height="540"></canvas>
+      <div id="hud"></div>
+    </div>
+    <script type="module" src="./bundle.js"></script>
+  </body>
+</html>
