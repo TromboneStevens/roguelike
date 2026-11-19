@@ -32,6 +32,8 @@ const COLOR_PLAYER_EYE = "#0b0d14";
 const COLOR_ENEMY = "#ff5d73";
 const COLOR_PROJECTILE = "#ffe14d";
 const COLOR_PROJECTILE_CORE = "#ffffff";
+// Player-fired shots use a cool tint so they read as distinct from enemy bullets.
+const COLOR_PLAYER_PROJECTILE = "#8af0ff";
 const COLOR_HP_FULL = "#6ad0ff";
 const COLOR_HP_EMPTY = "#2c3550";
 
@@ -149,8 +151,9 @@ function drawProjectiles(
   for (const pr of state.projectiles) {
     const cx = pr.pos.x + PROJECTILE_SIZE / 2 - camX;
     const cy = pr.pos.y + PROJECTILE_SIZE / 2;
-    // Glow halo.
-    ctx.fillStyle = COLOR_PROJECTILE;
+    const fromPlayer = !pr.owner.startsWith("enemy:");
+    // Glow halo. Player shots are tinted so they are distinct from enemy bullets.
+    ctx.fillStyle = fromPlayer ? COLOR_PLAYER_PROJECTILE : COLOR_PROJECTILE;
     ctx.beginPath();
     ctx.arc(cx, cy, PROJECTILE_SIZE, 0, Math.PI * 2);
     ctx.fill();

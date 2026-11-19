@@ -56,7 +56,8 @@ a different port.
 The Phase 1 slice is **single-player and local by default**. The browser client runs
 the deterministic shared simulation in its own fixed-timestep loop, so the game is
 fully playable with no server round-trip; `npm start` only needs to serve the static
-page.
+page. Run and jump across the level (a pit before the exit forces at least one jump),
+press `J` or a mouse button to shoot the enemy, and reach the exit to win.
 
 The server also stands up the co-op groundwork: it runs one authoritative room over
 the SAME shared simulation and accepts WebSocket connections. A connected client

@@ -2,10 +2,16 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   ENEMY_FIRE_INTERVAL,
+  ENEMY_HEIGHT,
+  ENEMY_MAX_HP,
+  ENEMY_WIDTH,
+  PLAYER_FIRE_COOLDOWN,
   PLAYER_HEIGHT,
   PLAYER_WIDTH,
+  PROJECTILE_SIZE,
   TILE_SIZE,
 } from "./constants.js";
+import { isSolidTile } from "./levelgen.js";
 import {
   createInitialState,
   DEFAULT_PLAYER_ID,
@@ -171,6 +177,146 @@ test("lose: when all players die the status becomes 'lost'", () => {
   s = step(s, only(input()));
   assert.equal(s.players[DEFAULT_PLAYER_ID]!.alive, false);
   assert.equal(s.status, "lost");
+});
+
+test("fire: pressing fire spawns a player-owned projectile moving in the facing direction", () => {
+  let s = createInitialState(42);
+  for (let i = 0; i < 30; i++) s = step(s, only(input())); // settle on the ground
+  const before = s.projectiles.length;
+
+  s = step(s, only(input({ fire: true })));
+  const mine = s.projectiles.filter((pr) => pr.owner === DEFAULT_PLAYER_ID);
+  assert.equal(mine.length, before + 1, "fire should spawn one player-owned projectile");
+  const shot = mine[0]!;
+  // Player spawns facing right, so the shot travels to the right horizontally.
+  assert.ok(shot.vel.x > 0, "player shot should travel in the facing direction (right)");
+  assert.equal(shot.vel.y, 0, "player shot travels horizontally");
+});
+
+test("fire cooldown: a second immediate fire does not spawn until the cooldown elapses", () => {
+  let s = createInitialState(42);
+  for (let i = 0; i < 30; i++) s = step(s, only(input()));
+
+  s = step(s, only(input({ fire: true })));
+  const afterFirst = s.projectiles.filter((pr) => pr.owner === DEFAULT_PLAYER_ID).length;
+  assert.equal(afterFirst, 1, "first fire spawns a projectile");
+
+  // Immediately holding fire again must not spawn a second shot during the cooldown.
+  s = step(s, only(input({ fire: true })));
+  const duringCooldown = s.projectiles.filter(
+    (pr) => pr.owner === DEFAULT_PLAYER_ID,
+  ).length;
+  assert.equal(duringCooldown, 1, "cooldown blocks a second immediate shot");
+
+  // After the cooldown elapses, a held fire spawns another shot. Compare the set of
+  // player-projectile ids so an in-flight shot leaving the array doesn't skew the count.
+  const idsBefore = new Set(
+    s.projectiles.filter((pr) => pr.owner === DEFAULT_PLAYER_ID).map((pr) => pr.id),
+  );
+  let sawNew = false;
+  for (let i = 0; i < PLAYER_FIRE_COOLDOWN; i++) {
+    s = step(s, only(input({ fire: true })));
+    if (
+      s.projectiles.some(
+        (pr) => pr.owner === DEFAULT_PLAYER_ID && !idsBefore.has(pr.id),
+      )
+    ) {
+      sawNew = true;
+    }
+  }
+  assert.ok(sawNew, "firing again after cooldown spawns another player projectile");
+});
+
+test("player shot vs enemy: an overlapping player projectile reduces enemy hp and is consumed", () => {
+  let s = createInitialState(42);
+  const enemy = s.enemies[0]!;
+  const hpBefore = enemy.hp;
+
+  // Place a player-owned projectile overlapping the enemy.
+  s.projectiles.push({
+    id: "proj:ptest",
+    pos: { x: enemy.pos.x + ENEMY_WIDTH / 2, y: enemy.pos.y + ENEMY_HEIGHT / 2 },
+    vel: { x: 0, y: 0 },
+    owner: DEFAULT_PLAYER_ID,
+    ttl: 60,
+  });
+
+  s = step(s, only(input()));
+  assert.equal(s.enemies[0]!.hp, hpBefore - 1, "enemy hp should drop by 1");
+  assert.ok(
+    !s.projectiles.some((pr) => pr.id === "proj:ptest"),
+    "player projectile should be consumed on hit",
+  );
+});
+
+test("player shot vs enemy: enough hits reduce enemy hp to 0 and remove the enemy", () => {
+  let s = createInitialState(42);
+  assert.ok(s.enemies.length >= 1);
+  const enemy = s.enemies[0]!;
+
+  // Fire ENEMY_MAX_HP overlapping player projectiles across successive ticks.
+  for (let i = 0; i < ENEMY_MAX_HP; i++) {
+    s.projectiles.push({
+      id: `proj:kill${i}`,
+      pos: {
+        x: enemy.pos.x + ENEMY_WIDTH / 2 - PROJECTILE_SIZE / 2,
+        y: enemy.pos.y + ENEMY_HEIGHT / 2 - PROJECTILE_SIZE / 2,
+      },
+      vel: { x: 0, y: 0 },
+      owner: DEFAULT_PLAYER_ID,
+      ttl: 60,
+    });
+    s = step(s, only(input()));
+  }
+
+  assert.equal(s.enemies.length, 0, "enemy should be removed when hp reaches 0");
+});
+
+test("no friendly fire: a player-owned projectile does not damage players", () => {
+  let s = createInitialState(42);
+  const p = s.players[DEFAULT_PLAYER_ID]!;
+  const hpBefore = p.hp;
+
+  s.projectiles.push({
+    id: "proj:friendly",
+    pos: { x: p.pos.x + PLAYER_WIDTH / 2, y: p.pos.y + PLAYER_HEIGHT / 2 },
+    vel: { x: 0, y: 0 },
+    owner: DEFAULT_PLAYER_ID,
+    ttl: 60,
+  });
+
+  s = step(s, only(input()));
+  assert.equal(
+    s.players[DEFAULT_PLAYER_ID]!.hp,
+    hpBefore,
+    "player hp must be unchanged by a player-owned projectile",
+  );
+});
+
+test("reachability: a scripted floor-walk with a pit jump completes the level to 'won'", () => {
+  // Drives step() with a move-right script that jumps only when the floor directly ahead
+  // is missing (the authored pre-exit pit). This proves the generated geometry is really
+  // completable with a jump, so finding #2's fix can't silently make the level unwinnable.
+  // A pure flat walk cannot win (the pit forces the jump), so reaching 'won' exercises
+  // both the floor traversal and the jump. Enemies are dropped so a stray bullet can't
+  // end the run before it proves geometric reachability.
+  let s = createInitialState(42);
+  s.enemies = [];
+  const maxTicks = 8000;
+  let won = false;
+  for (let i = 0; i < maxTicks; i++) {
+    const player = s.players[DEFAULT_PLAYER_ID]!;
+    const aheadTx = Math.floor((player.pos.x + PLAYER_WIDTH + 4) / TILE_SIZE);
+    const belowTy = Math.floor((player.pos.y + PLAYER_HEIGHT + 2) / TILE_SIZE);
+    const pitAhead = !isSolidTile(s.map, aheadTx, belowTy);
+    const jump = player.onGround && pitAhead;
+    s = step(s, only(input({ right: true, jump, tick: i })));
+    if (s.status === "won") {
+      won = true;
+      break;
+    }
+  }
+  assert.ok(won, "a right-moving player jumping the pit should reach the exit and win");
 });
 
 test("frozen after resolution: stepping a decided match is idempotent in status", () => {

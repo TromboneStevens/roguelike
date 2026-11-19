@@ -26,6 +26,8 @@ export interface PlayerState {
   hp: number;
   facing: Facing;
   alive: boolean;
+  /** Ticks remaining until the player may fire again. */
+  fireCooldown: number;
 }
 
 /** A simple enemy that fires projectiles toward the nearest player on an interval. */

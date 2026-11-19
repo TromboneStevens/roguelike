@@ -32,6 +32,7 @@ export function createPlayer(id: string, spawn: TileCoord): PlayerState {
     hp: PLAYER_MAX_HP,
     facing: "right" as Facing,
     alive: true,
+    fireCooldown: 0,
   };
 }
 

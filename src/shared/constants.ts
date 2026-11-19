@@ -58,6 +58,18 @@ export const ENEMY_FIRE_INTERVAL = 90;
 /** Projectile travel speed in pixels per second. */
 export const PROJECTILE_SPEED = 420;
 
+/** Ticks a player must wait between shots (gates the fire control). */
+export const PLAYER_FIRE_COOLDOWN = 18;
+
+/**
+ * Player projectile travel speed in pixels per second. Kept well under one tile
+ * (TILE_SIZE) per tick at 60Hz so projectiles never tunnel through a tile.
+ */
+export const PLAYER_PROJECTILE_SPEED = 560;
+
+/** Damage a single player projectile deals to an enemy on hit. */
+export const PLAYER_PROJECTILE_DAMAGE = 1;
+
 /** Projectile lifetime in ticks before it expires. */
 export const PROJECTILE_TTL = 180;
 

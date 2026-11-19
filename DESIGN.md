@@ -32,9 +32,12 @@ Every run is different, every death is yours to own, and a good run is a shared 
 The first playable slice is intentionally single-player and small, but built on the
 shared deterministic core so co-op drops in during phase 2 without a rewrite.
 
-- One procedurally generated platforming level from a seed.
-- A player who can run, jump (with coyote time + jump buffering), and move precisely.
-- At least one enemy that fires telegraphed projectiles in a bullet-hell pattern.
+- One procedurally generated platforming level from a seed. The floor carries an
+  authored pit in front of the exit, so reaching the goal requires at least one jump:
+  the platforming geometry is load-bearing, not a decorative overlay on a flat walk.
+- A player who can run, jump, move precisely, and shoot a projectile in the facing
+  direction (gated by a short per-player cooldown) to fight back against the enemy.
+- At least one enemy that fires aimed projectiles and can be destroyed by player fire.
 - Win condition: reach the level exit.
 - Lose condition: the player's health reaches zero (hit by projectiles / hazards).
 - Renders and plays in the browser over a fixed-timestep simulation at 60 Hz.
@@ -47,9 +50,11 @@ shared deterministic core so co-op drops in during phase 2 without a rewrite.
 | Move left   | `A` / `←`                     |
 | Move right  | `D` / `→`                     |
 | Jump        | `Space` / `W` / `↑`           |
-| Shoot / aim | `←` `→` or mouse (TBD in impl) |
+| Shoot       | `J` / mouse (see client input) |
 
-Exact bindings are finalized in the client input feature; this table is the intent.
+Shooting fires a projectile horizontally in the player's current facing direction,
+rate-limited by a per-player cooldown. Player shots damage enemies but never other
+players (no friendly fire in v1), keeping co-op safe.
 
 ### Win / lose
 

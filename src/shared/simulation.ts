@@ -17,7 +17,10 @@ import {
   JUMP_VELOCITY,
   MAX_FALL_SPEED,
   MOVE_SPEED,
+  PLAYER_FIRE_COOLDOWN,
   PLAYER_HEIGHT,
+  PLAYER_PROJECTILE_DAMAGE,
+  PLAYER_PROJECTILE_SPEED,
   PLAYER_WIDTH,
   PROJECTILE_DAMAGE,
   PROJECTILE_SIZE,
@@ -77,6 +80,7 @@ function clonePlayer(p: PlayerState): PlayerState {
     hp: p.hp,
     facing: p.facing,
     alive: p.alive,
+    fireCooldown: p.fireCooldown,
   };
 }
 
@@ -146,21 +150,28 @@ export function step(state: GameState, inputsById: InputsById): GameState {
   // Per-tick RNG derived purely from seed + tick so randomness is reproducible.
   const rng = createRng((next.seed ^ Math.imul(next.tick, 0x9e3779b1)) >>> 0);
 
-  // 1) Players: input -> velocity -> gravity -> integrate with tile collision.
+  // 1) Players: input -> velocity -> gravity -> integrate with tile collision,
+  //    then resolve the fire control into a player-owned projectile.
   for (const id of Object.keys(next.players)) {
     const player = next.players[id]!;
     if (!player.alive) continue;
     const input = inputsById[id] ?? NO_INPUT;
     updatePlayer(player, input, next.map);
+    updatePlayerFire(player, input, next);
   }
 
   // 2) Enemies: tick fire cooldown, shoot toward nearest living player on interval.
-  for (const enemy of next.enemies) {
+  for (const i of enemyOrder(next.enemies)) {
+    const enemy = next.enemies[i]!;
+    if (enemy.hp <= 0) continue;
     updateEnemy(enemy, next, rng);
   }
 
-  // 3) Projectiles: integrate, expire by ttl, resolve vs tiles and players.
+  // 3) Projectiles: integrate, expire by ttl, resolve vs tiles, players and enemies.
   updateProjectiles(next);
+
+  // Remove enemies destroyed by player fire. Dead enemies no longer fire or take hits.
+  next.enemies = next.enemies.filter((e) => e.hp > 0);
 
   // 4) Win / lose resolution.
   resolveStatus(next);
@@ -191,6 +202,37 @@ function updatePlayer(player: PlayerState, input: InputState, map: TileMap): voi
   // Integrate and resolve one axis at a time so corners behave.
   moveAxisX(player, map, player.vel.x * TICK_DT);
   moveAxisY(player, map, player.vel.y * TICK_DT);
+}
+
+/**
+ * Resolve the fire control for one player. Ticks down the per-player cooldown and, when
+ * fire is held and the cooldown has elapsed, spawns a player-owned projectile travelling
+ * horizontally in the player's facing direction. Owner is the player id so the existing
+ * enemy-only damage path ignores it (no friendly fire).
+ */
+function updatePlayerFire(player: PlayerState, input: InputState, state: GameState): void {
+  if (player.fireCooldown > 0) {
+    player.fireCooldown -= 1;
+  }
+  if (!input.fire || player.fireCooldown > 0) return;
+
+  const dir = player.facing === "left" ? -1 : 1;
+  const cx = player.pos.x + PLAYER_WIDTH / 2;
+  const cy = player.pos.y + PLAYER_HEIGHT / 2;
+
+  const id = `proj:${state.nextEntityId}`;
+  state.nextEntityId += 1;
+  state.projectiles.push(
+    createProjectile(
+      id,
+      cx - PROJECTILE_SIZE / 2,
+      cy - PROJECTILE_SIZE / 2,
+      dir * PLAYER_PROJECTILE_SPEED,
+      0,
+      player.id,
+    ),
+  );
+  player.fireCooldown = PLAYER_FIRE_COOLDOWN;
 }
 
 /** Tiles overlapped by an AABB, inclusive. */
@@ -308,6 +350,17 @@ function updateEnemy(enemy: EnemyState, state: GameState, rng: ReturnType<typeof
   enemy.fireCooldown = ENEMY_FIRE_INTERVAL;
 }
 
+/**
+ * Indices into the enemies array in ascending enemy-id order. Keeps cross-entity loops
+ * deterministic regardless of array order (ids are minted as "enemy:0", "enemy:1", ...).
+ */
+function enemyOrder(enemies: EnemyState[]): number[] {
+  return enemies
+    .map((e, i) => ({ id: e.id, i }))
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .map((e) => e.i);
+}
+
 function nearestLivingPlayer(
   enemy: EnemyState,
   players: Record<string, PlayerState>,
@@ -346,10 +399,10 @@ function updateProjectiles(state: GameState): void {
     const ty = Math.floor(cy / TILE_SIZE);
     if (isSolidTile(state.map, tx, ty)) continue;
 
-    // Enemy-owned projectiles damage players on overlap.
     const box: Aabb = { x: pr.pos.x, y: pr.pos.y, w: PROJECTILE_SIZE, h: PROJECTILE_SIZE };
     let consumed = false;
     if (pr.owner.startsWith("enemy:")) {
+      // Enemy-owned projectiles damage players on overlap.
       for (const id of Object.keys(state.players).sort()) {
         const player = state.players[id]!;
         if (!player.alive) continue;
@@ -365,6 +418,25 @@ function updateProjectiles(state: GameState): void {
             player.hp = 0;
             player.alive = false;
           }
+          consumed = true;
+          break;
+        }
+      }
+    } else {
+      // Player-owned projectiles damage enemies on overlap (no friendly fire: they
+      // never touch players). Iterate enemies in sorted-id order for determinism.
+      const order = enemyOrder(state.enemies);
+      for (const i of order) {
+        const enemy = state.enemies[i]!;
+        if (enemy.hp <= 0) continue;
+        const ebox: Aabb = {
+          x: enemy.pos.x,
+          y: enemy.pos.y,
+          w: ENEMY_WIDTH,
+          h: ENEMY_HEIGHT,
+        };
+        if (aabbOverlap(box, ebox)) {
+          enemy.hp -= PLAYER_PROJECTILE_DAMAGE;
           consumed = true;
           break;
         }
