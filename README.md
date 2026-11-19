@@ -46,10 +46,25 @@ npm test           # type-check then run the shared-core tests with node --test
 npm run dev        # rebuild on change (esbuild watch)
 ```
 
-After `npm run build`, start the server and open
-[http://localhost:8080](http://localhost:8080) in a browser to play.
+After `npm run build`, run `npm start` and open
+[http://localhost:8080](http://localhost:8080) in a browser to play. The server reads
+`PORT` from the environment and defaults to `8080`, so `PORT=8137 npm start` serves on
+a different port.
 
-> Note: the current state is the Phase 1 scaffold — the toolchain installs,
-> type-checks, bundles, and serves the client. Gameplay (level generation, player
-> movement, the bullet-hell enemy, win/lose) lands in the following features. See the
-> [roadmap](docs/ROADMAP.md).
+## Run modes (v1)
+
+The Phase 1 slice is **single-player and local by default**. The browser client runs
+the deterministic shared simulation in its own fixed-timestep loop, so the game is
+fully playable with no server round-trip; `npm start` only needs to serve the static
+page.
+
+The server also stands up the co-op groundwork: it runs one authoritative room over
+the SAME shared simulation and accepts WebSocket connections. A connected client
+receives a `joinAck` (its assigned player id + the room seed) and then authoritative
+`snapshot` messages it can render, while it streams its `input` up. Opting a client
+into this server-authoritative path is available through `src/client/net.ts` but is
+not the default for v1; the local mode must keep working on its own.
+
+Full client-side prediction, server reconciliation, and remote-player interpolation
+(smooth online co-op) are **Phase 2**. See the [roadmap](docs/ROADMAP.md) and the
+netcode notes in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).

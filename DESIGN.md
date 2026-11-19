@@ -56,11 +56,27 @@ Exact bindings are finalized in the client input feature; this table is the inte
 - **Win:** the player overlaps the exit trigger placed by the level generator.
 - **Lose:** player health reaches 0. The run ends and can be restarted with a new seed.
 
+### Running the slice
+
+`npm run build` then `npm start` launches the Node server on
+`http://localhost:8080` (override with the `PORT` env var) and serves the built
+client. Open that URL in a browser to play.
+
+**Default run mode is single-player, local.** The browser client runs the shared
+deterministic simulation in its own fixed-timestep loop, so play needs no server
+round-trip. The server additionally runs one authoritative room over the SAME shared
+`step()` and accepts WebSocket connections: a client that opts in (via
+`src/client/net.ts`) receives a `joinAck` with its player id + the room seed, renders
+authoritative `snapshot` broadcasts, and streams its `input` up. This server path is
+the co-op foundation, not the default v1 experience, and the local mode works with no
+server dependency.
+
 ## Where co-op fits
 
 The simulation is a pure function `step(state, inputs) -> state` run at a fixed
 timestep. Because it is deterministic and seeded, the same inputs produce the same
-state on every machine. Phase 2 makes the server authoritative over this loop and adds
-client-side prediction, server reconciliation, and remote-player interpolation. See
+state on every machine. The Phase 1 server already runs this shared loop authoritatively
+in a room and broadcasts snapshots. Phase 2 builds on that with client-side prediction,
+server reconciliation, and remote-player interpolation so online co-op feels smooth. See
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the netcode design and
 [`docs/ROADMAP.md`](docs/ROADMAP.md) for the phased plan.

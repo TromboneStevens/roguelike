@@ -1,57 +1,71 @@
-// Server entrypoint (placeholder scaffold).
+// Server entrypoint: static HTTP for the built client + authoritative ws game loop.
 //
-// Later features add: the authoritative fixed-timestep simulation loop, room/lobby
-// management, and the ws transport that syncs clients. For now this serves the built
-// client from dist/client over plain HTTP so `npm start` launches a playable page,
-// and it stands up a WebSocket server to prove the ws dependency links in the bundle.
+// It serves dist/client over plain HTTP (see http.ts) so `npm start` launches a
+// playable page at http://localhost:8080, and it stands up a single authoritative
+// Room (room.ts) that runs the SHARED deterministic simulation. WebSocket clients join
+// the room, receive a JoinAck with their assigned player id + the room seed, stream
+// {type:"input"} messages in, and receive {type:"snapshot"} broadcasts each tick.
+//
+// v1 scope: one shared room, full-state JSON snapshots, no prediction/reconciliation.
+// The single-player browser client still runs fully local by default and does not
+// depend on this server (see src/client/net.ts); this is the co-op groundwork so
+// phase 2 is an extension rather than a rewrite.
 
-import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
-import { extname, join, normalize, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { WebSocketServer } from "ws";
+import { WebSocketServer, type WebSocket } from "ws";
+import { createStaticServer } from "./http.js";
+import { Room, type RoomClient } from "./room.js";
+import { parseClientMessage } from "../shared/protocol.js";
+import type { ServerMessage } from "../shared/protocol.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
 
-// When bundled to dist/server/index.js, the client assets live at ../client.
-const clientDir = resolve(fileURLToPath(import.meta.url), "..", "..", "client");
+/** Seed the room from the environment when provided, else pick one at startup. */
+const SEED = Number.isFinite(Number(process.env.SEED))
+  ? Number(process.env.SEED) >>> 0
+  : (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0;
 
-const CONTENT_TYPES: Record<string, string> = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".map": "application/json; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".png": "image/png",
-  ".svg": "image/svg+xml",
-};
+const httpServer = createStaticServer();
+const room = new Room(SEED);
 
-const httpServer = createServer(async (req, res) => {
-  const urlPath = decodeURIComponent((req.url ?? "/").split("?")[0] ?? "/");
-  const relative = urlPath === "/" ? "index.html" : urlPath.replace(/^\/+/, "");
+// One authoritative loop drives the shared simulation for all connected clients.
+room.start();
 
-  // Resolve inside clientDir and reject path traversal.
-  const target = normalize(join(clientDir, relative));
-  if (!target.startsWith(clientDir)) {
-    res.writeHead(403).end("Forbidden");
-    return;
-  }
-
-  try {
-    const body = await readFile(target);
-    const type = CONTENT_TYPES[extname(target)] ?? "application/octet-stream";
-    res.writeHead(200, { "Content-Type": type }).end(body);
-  } catch {
-    res.writeHead(404, { "Content-Type": "text/plain" }).end("Not Found");
-  }
-});
-
-// WebSocket groundwork for phase 2 co-op. Echoes for now; the authoritative loop
-// and room routing land in later features.
 const wss = new WebSocketServer({ server: httpServer });
-wss.on("connection", (socket) => {
-  socket.send(JSON.stringify({ type: "hello" }));
-  socket.on("message", (data) => socket.send(data));
+
+let nextConnection = 0;
+
+wss.on("connection", (socket: WebSocket) => {
+  const playerId = `player:${nextConnection++}`;
+
+  // Adapter so the room can broadcast without knowing about ws.
+  const client: RoomClient = {
+    id: playerId,
+    send(message: ServerMessage) {
+      if (socket.readyState === socket.OPEN) {
+        socket.send(JSON.stringify(message));
+      }
+    },
+  };
+
+  const { seed } = room.addPlayer(playerId, client);
+  client.send({ type: "joinAck", playerId, seed });
+  console.log(`[server] ${playerId} joined (seed ${seed})`);
+
+  socket.on("message", (data) => {
+    const message = parseClientMessage(data.toString());
+    if (message?.type === "input") {
+      room.setInput(playerId, message.input);
+    }
+  });
+
+  socket.on("close", () => {
+    room.removePlayer(playerId);
+    console.log(`[server] ${playerId} left`);
+  });
+
+  socket.on("error", () => {
+    room.removePlayer(playerId);
+  });
 });
 
 httpServer.listen(PORT, () => {
